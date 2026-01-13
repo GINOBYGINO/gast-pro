@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>學測全項目歸類練習</title>
+    <style>
+        :root {
+            --primary: #5c6bc0;
+            --bg: #f0f2f5;
+            --correct: #4caf50;
+            --wrong: #f44336;
+            --selected: #e8eaf6;
+        }
+        body {
+            font-family: -apple-system, "Noto Sans TC", sans-serif;
+            background-color: var(--bg);
+            margin: 0; padding: 15px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .container { width: 100%; max-width: 800px; }
+        .card {
+            background: white; padding: 25px; border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1); width: 100%; box-sizing: border-box;
+        }
+
+        /* 輸入區 */
+        textarea {
+            width: 100%; height: 250px; border-radius: 12px;
+            border: 1px solid #ccc; padding: 15px; font-size: 16px;
+            box-sizing: border-box; margin-bottom: 15px; line-height: 1.5;
+        }
+
+        /* 滑動視窗 */
+        .options-scroll-box {
+            max-height: 500px; /* 增加高度以便容納更多選項 */
+            overflow-y: auto;
+            border: 2px solid #eee;
+            padding: 15px;
+            border-radius: 15px;
+            background: #fff;
+            margin: 20px 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .option {
+            background: #fafafa; border: 2px solid #eee;
+            padding: 15px; border-radius: 12px;
+            font-size: 16px; cursor: pointer;
+            margin-bottom: 10px; transition: all 0.2s;
+            display: block;
+        }
+
+        /* 狀態顏色 */
+        .option.selected { background-color: var(--selected); border-color: var(--primary); }
+        .option.correct-ans { background-color: #e8f5e9 !important; border-color: var(--correct) !important; color: #2e7d32; }
+        .option.wrong-ans { background-color: #ffebee !important; border-color: var(--wrong) !important; color: #c62828; }
+        .option.missed { border: 2px dashed var(--correct) !important; background-color: #f9fff9; }
+
+        button {
+            width: 100%; padding: 18px; background: var(--primary);
+            color: white; border: none; border-radius: 15px;
+            font-size: 18px; font-weight: bold; cursor: pointer;
+        }
+        button:active { opacity: 0.8; transform: scale(0.98); }
+        .hidden { display: none; }
+
+        #feedback-msg {
+            padding: 15px; border-radius: 12px; margin-bottom: 15px;
+            text-align: center; font-weight: bold; font-size: 18px;
+        }
+        
+        .progress-text { text-align: right; color: #888; font-size: 14px; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 style="text-align:center; color: #333;">學測知識點歸類練習</h2>
+
+    <div id="setup-page" class="card">
+        <p>請貼上整理好的筆記內容：</p>
+        <textarea id="input-text" placeholder="# 標題一&#10;正確細項1&#10;正確細項2&#10;# 標題二..."></textarea>
+        <button onclick="initQuiz()">開始測驗</button>
+    </div>
+
+    <div id="quiz-page" class="card hidden">
+        <div class="progress-text" id="progress"></div>
+        <div id="feedback-msg" class="hidden"></div>
+        <h2 id="quiz-title" style="margin:0; color: var(--primary);">標題</h2>
+        <p style="color: #666; margin-top: 10px;">請從下方所有選項中，選出屬於此標題的內容：</p>
+        
+        <div class="options-scroll-box" id="options-container">
+            </div>
+
+        <button id="submit-btn" onclick="checkAnswers()">送出作答</button>
+        <button id="next-btn" class="hidden" onclick="renderQuestion()">下一題</button>
+    </div>
+
+    <div id="result-page" class="card hidden">
+        <h2 style="text-align:center;">練習成果</h2>
+        <p id="final-score" style="font-size: 28px; text-align:center; font-weight:bold; color: var(--primary);"></p>
+        <div id="error-list" style="margin: 20px 0; padding: 20px; background: #fff5f5; border-radius: 15px; border-left: 5px solid var(--wrong);"></div>
+        <button onclick="location.reload()">再練一次</button>
+    </div>
+</div>
+
+<script>
+    let questions = [];
+    let currentIdx = 0;
+    let score = 0;
+    let allOptionsPool = []; // 存放所有輸入過的細項
+    let mistakes = [];
+
+    function initQuiz() {
+        const raw = document.getElementById('input-text').value;
+        if(!raw.includes('#')) return alert("格式錯誤！請確保包含 #標題");
+
+        const sections = raw.split('#').filter(s => s.trim() !== "");
+        
+        // 重置數據
+        questions = [];
+        allOptionsPool = [];
+        
+        sections.forEach(sec => {
+            const lines = sec.trim().split('\n');
+            const title = lines[0].trim();
+            const corrects = lines.slice(1).map(l => l.trim()).filter(l => l !== "");
+            
+            if (title && corrects.length > 0) {
+                questions.push({ title, corrects });
+                allOptionsPool.push(...corrects);
+            }
+        });
+
+        // 移除重複選項並洗牌
+        allOptionsPool = [...new Set(allOptionsPool)];
+
+        document.getElementById('setup-page').classList.add('hidden');
+        document.getElementById('quiz-page').classList.remove('hidden');
+        renderQuestion();
+    }
+
+    function renderQuestion() {
+        if (currentIdx >= questions.length) return showFinalResult();
+
+        const q = questions[currentIdx];
+        document.getElementById('quiz-title').innerText = q.title;
+        document.getElementById('progress').innerText = `進度：${currentIdx + 1} / ${questions.length}`;
+        document.getElementById('feedback-msg').classList.add('hidden');
+        document.getElementById('submit-btn').classList.remove('hidden');
+        document.getElementById('next-btn').classList.add('hidden');
+
+        // 每題都顯示池子裡所有的選項，但順序隨機排列
+        let displayOptions = [...allOptionsPool].sort(() => 0.5 - Math.random());
+
+        const container = document.getElementById('options-container');
+        container.innerHTML = '';
+        
+        displayOptions.forEach(text => {
+            const div = document.createElement('div');
+            div.className = 'option';
+            div.innerText = text;
+            div.onclick = () => {
+                if (!document.getElementById('submit-btn').classList.contains('hidden')) {
+                    div.classList.toggle('selected');
+                }
+            };
+            container.appendChild(div);
+        });
+        container.scrollTop = 0; // 換題時回到頂部
+    }
+
+    function checkAnswers() {
+        const q = questions[currentIdx];
+        const items = document.querySelectorAll('.option');
+        let isWrong = false;
+        let selectedWrong = 0;
+        let missedRight = 0;
+
+        items.forEach(el => {
+            const text = el.innerText;
+            const isSelected = el.classList.contains('selected');
+            const isCorrect = q.corrects.includes(text);
+
+            if (isSelected && isCorrect) {
+                el.classList.add('correct-ans');
+            } else if (isSelected && !isCorrect) {
+                el.classList.add('wrong-ans');
+                isWrong = true;
+                selectedWrong++;
+            } else if (!isSelected && isCorrect) {
+                el.classList.add('missed');
+                isWrong = true;
+                missedRight++;
+            }
+        });
+
+        const feedback = document.getElementById('feedback-msg');
+        feedback.classList.remove('hidden');
+        
+        if (!isWrong) {
+            feedback.innerText = "答對了！全項歸類正確 ✨";
+            feedback.style.backgroundColor = "#e8f5e9";
+            feedback.style.color = "#2e7d32";
+            score++;
+        } else {
+            feedback.innerText = `選錯 ${selectedWrong} 項，漏選 ${missedRight} 項`;
+            feedback.style.backgroundColor = "#ffebee";
+            feedback.style.color = "#c62828";
+            mistakes.push(q.title);
+        }
+
+        document.getElementById('submit-btn').classList.add('hidden');
+        document.getElementById('next-btn').classList.remove('hidden');
+        currentIdx++;
+    }
+
+    function showFinalResult() {
+        document.getElementById('quiz-page').classList.add('hidden');
+        document.getElementById('result-page').classList.remove('hidden');
+        document.getElementById('final-score').innerText = `總分：${score} / ${questions.length}`;
+        const list = document.getElementById('error-list');
+        if (mistakes.length > 0) {
+            list.innerHTML = "<strong>需要加強的大綱：</strong><br>" + mistakes.map(m => `• ${m}`).join('<br>');
+        } else {
+            list.innerHTML = "太神了！所有分類完全正確！";
+            list.style.background = "#e8f5e9";
+            list.style.borderColor = "#4caf50";
+        }
+    }
+</script>
+
+</body>
+</html>
